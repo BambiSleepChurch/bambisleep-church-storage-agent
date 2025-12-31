@@ -21,6 +21,37 @@ export interface FolderListing {
   videos?: FileInfo[];
 }
 
+export interface QueueStatus {
+  active: number;
+  waiting: number;
+  maxConcurrent: number;
+  waitingTickets?: { position: number; ticketId: string; estimatedWait: number }[];
+}
+
+export interface DownloadQueueStatus {
+  active: { sessionId: string; filename: string; duration: number; ip: string }[];
+  waiting: { position: number; sessionId: string; filename: string; waitTime: number }[];
+  stats: { activeCount: number; waitingCount: number; maxConcurrent: number };
+}
+
+export interface TicketResponse {
+  status: "granted" | "queued" | "active" | "expired";
+  ticketId: string;
+  position?: number;
+  waitTime?: number;
+  remainingTime?: number;
+}
+
+export interface StreamInfo {
+  id: string;
+  name: string;
+  status: string;
+  url?: string;
+  startedAt?: Date;
+  uptime?: number;
+  playlistUrl?: string;
+}
+
 export class MCPFileClient {
   private client: Client | null = null;
   private transport: StdioClientTransport | null = null;
@@ -129,6 +160,52 @@ export class MCPFileClient {
     if (folder) args.folder = folder;
     const result = await this.callTool("get_file_info", args);
     return JSON.parse(result);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 🌀 BRANDYFICATION QUEUE & STREAMING METHODS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  async createDirectory(name: string, parentFolder?: "IMAGES" | "VIDEOS" | "root"): Promise<string> {
+    const args: Record<string, unknown> = { name };
+    if (parentFolder) args.parentFolder = parentFolder;
+    return await this.callTool("create_directory", args);
+  }
+
+  async getQueueStatus(): Promise<QueueStatus> {
+    const result = await this.callTool("get_queue_status", {});
+    return JSON.parse(result);
+  }
+
+  async joinDownloadQueue(filename: string, folder?: "IMAGES" | "VIDEOS" | "root"): Promise<TicketResponse> {
+    const args: Record<string, unknown> = { filename };
+    if (folder) args.folder = folder;
+    const result = await this.callTool("join_download_queue", args);
+    return JSON.parse(result);
+  }
+
+  async checkTicket(ticketId: string): Promise<TicketResponse> {
+    const result = await this.callTool("check_ticket", { ticketId });
+    return JSON.parse(result);
+  }
+
+  async getDownloadQueueStatus(): Promise<DownloadQueueStatus> {
+    const result = await this.callTool("get_download_queue_status", {});
+    return JSON.parse(result);
+  }
+
+  async getActiveStreams(): Promise<StreamInfo[]> {
+    const result = await this.callTool("get_active_streams", {});
+    return JSON.parse(result);
+  }
+
+  async startStream(source: string, type: "rtmp" | "rtsp"): Promise<StreamInfo> {
+    const result = await this.callTool("start_stream", { source, type });
+    return JSON.parse(result);
+  }
+
+  async stopStream(streamId: string): Promise<string> {
+    return await this.callTool("stop_stream", { streamId });
   }
 
   // Get available tools

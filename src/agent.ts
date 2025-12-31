@@ -111,6 +111,51 @@ async function handleAgentMessage(ws: WebSocket, message: { action: string; payl
         result = await mcpClient.getTools();
         break;
 
+      // ═══════════════════════════════════════════════════════════════════════════
+      // 🌀 BRANDYFICATION QUEUE & STREAMING ACTIONS
+      // ═══════════════════════════════════════════════════════════════════════════
+
+      case "create_directory":
+        const { name: dirName, parentFolder } = payload as { name: string; parentFolder?: string };
+        result = await mcpClient.createDirectory(dirName, parentFolder as "IMAGES" | "VIDEOS" | "root");
+        broadcast({ type: "file_changed", action: "create_directory", filename: dirName });
+        break;
+
+      case "get_queue_status":
+        result = await mcpClient.getQueueStatus();
+        break;
+
+      case "join_download_queue":
+        const { filename: queueFilename, folder: queueFolder } = payload as { filename: string; folder?: string };
+        result = await mcpClient.joinDownloadQueue(queueFilename, queueFolder as "IMAGES" | "VIDEOS" | "root");
+        broadcast({ type: "queue_update", action: "join", filename: queueFilename });
+        break;
+
+      case "check_ticket":
+        const { ticketId } = payload as { ticketId: string };
+        result = await mcpClient.checkTicket(ticketId);
+        break;
+
+      case "get_download_queue_status":
+        result = await mcpClient.getDownloadQueueStatus();
+        break;
+
+      case "get_active_streams":
+        result = await mcpClient.getActiveStreams();
+        break;
+
+      case "start_stream":
+        const { source, type: streamType } = payload as { source: string; type: "rtmp" | "rtsp" };
+        result = await mcpClient.startStream(source, streamType);
+        broadcast({ type: "stream_update", action: "start", source });
+        break;
+
+      case "stop_stream":
+        const { streamId } = payload as { streamId: string };
+        result = await mcpClient.stopStream(streamId);
+        broadcast({ type: "stream_update", action: "stop", streamId });
+        break;
+
       default:
         throw new Error(`Unknown action: ${action}`);
     }
@@ -223,6 +268,91 @@ app.get("/api/tools", async (req: Request, res: Response) => {
   try {
     const tools = await mcpClient.getTools();
     res.json(tools);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🌀 BRANDYFICATION QUEUE & STREAMING API ENDPOINTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+app.post("/api/directory", async (req: Request, res: Response) => {
+  try {
+    const { name, parentFolder } = req.body;
+    const result = await mcpClient.createDirectory(name, parentFolder);
+    broadcast({ type: "file_changed", action: "create_directory", filename: name });
+    res.json({ success: true, message: result });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.get("/api/queue", async (req: Request, res: Response) => {
+  try {
+    const status = await mcpClient.getQueueStatus();
+    res.json(status);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.post("/api/queue/join", async (req: Request, res: Response) => {
+  try {
+    const { filename, folder } = req.body;
+    const ticket = await mcpClient.joinDownloadQueue(filename, folder);
+    broadcast({ type: "queue_update", action: "join", filename });
+    res.json(ticket);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.get("/api/queue/ticket/:ticketId", async (req: Request, res: Response) => {
+  try {
+    const { ticketId } = req.params;
+    const status = await mcpClient.checkTicket(ticketId);
+    res.json(status);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.get("/api/queue/downloads", async (req: Request, res: Response) => {
+  try {
+    const status = await mcpClient.getDownloadQueueStatus();
+    res.json(status);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.get("/api/streams", async (req: Request, res: Response) => {
+  try {
+    const streams = await mcpClient.getActiveStreams();
+    res.json(streams);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.post("/api/streams/start", async (req: Request, res: Response) => {
+  try {
+    const { source, type } = req.body;
+    const stream = await mcpClient.startStream(source, type);
+    broadcast({ type: "stream_update", action: "start", source });
+    res.json(stream);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.post("/api/streams/:streamId/stop", async (req: Request, res: Response) => {
+  try {
+    const { streamId } = req.params;
+    const result = await mcpClient.stopStream(streamId);
+    broadcast({ type: "stream_update", action: "stop", streamId });
+    res.json({ success: true, message: result });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
@@ -547,6 +677,134 @@ function getFrontendHTML(): string {
 
     .action-btn:hover { color: var(--text); background: var(--bg-hover); }
     .action-btn.delete:hover { color: var(--error); }
+
+    /* 🌀 BRANDYFICATION Queue & Streaming Styles */
+    .queue-panel, .stream-panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .queue-stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .stat-card {
+      background: var(--bg);
+      padding: 1rem;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .stat-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 0.25rem;
+    }
+
+    .stream-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .stream-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--bg);
+      padding: 1rem;
+      border-radius: 8px;
+    }
+
+    .stream-info {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .stream-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      background: rgba(139, 92, 246, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.25rem;
+    }
+
+    .stream-name {
+      font-weight: 500;
+    }
+
+    .stream-type {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .input-group {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
+
+    .input-group input {
+      flex: 1;
+      padding: 0.625rem 1rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 0.875rem;
+    }
+
+    .input-group input:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+
+    .input-group select {
+      padding: 0.625rem 1rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 0.875rem;
+    }
+
+    .ticket-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      background: rgba(139, 92, 246, 0.1);
+      color: var(--primary);
+    }
+
+    .panel-title {
+      font-size: 1.125rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
   </style>
 </head>
 <body>
@@ -578,6 +836,47 @@ function getFrontendHTML(): string {
       <div class="tab active" data-folder="all" onclick="switchTab('all')">All Files</div>
       <div class="tab" data-folder="IMAGES" onclick="switchTab('IMAGES')">🖼️ Images</div>
       <div class="tab" data-folder="VIDEOS" onclick="switchTab('VIDEOS')">🎬 Videos</div>
+      <div class="tab" data-folder="queue" onclick="switchTab('queue')">📥 Queue</div>
+      <div class="tab" data-folder="streams" onclick="switchTab('streams')">📡 Streams</div>
+    </div>
+
+    <!-- Queue Panel (hidden by default) -->
+    <div id="queue-panel" class="queue-panel" style="display: none;">
+      <h3 class="panel-title">📥 Download Queue</h3>
+      <div class="queue-stats" id="queue-stats">
+        <div class="stat-card">
+          <div class="stat-value" id="queue-active">0</div>
+          <div class="stat-label">Active</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="queue-waiting">0</div>
+          <div class="stat-label">Waiting</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="queue-max">5</div>
+          <div class="stat-label">Max Concurrent</div>
+        </div>
+      </div>
+      <div id="queue-list" class="stream-list"></div>
+    </div>
+
+    <!-- Streams Panel (hidden by default) -->
+    <div id="streams-panel" class="stream-panel" style="display: none;">
+      <h3 class="panel-title">📡 Active Streams</h3>
+      <div id="streams-list" class="stream-list">
+        <div class="empty-state" style="padding: 2rem;">
+          <div class="icon">📡</div>
+          <p>No active streams</p>
+        </div>
+      </div>
+      <div class="input-group">
+        <input type="text" id="stream-source" placeholder="rtmp://server/app/stream or rtsp://camera/stream">
+        <select id="stream-type">
+          <option value="rtmp">RTMP (OBS)</option>
+          <option value="rtsp">RTSP (Camera)</option>
+        </select>
+        <button class="btn btn-primary" onclick="startStream()">▶️ Start</button>
+      </div>
     </div>
 
     <div id="file-grid" class="grid">
@@ -663,6 +962,14 @@ function getFrontendHTML(): string {
         case 'file_changed':
           showToast(\`File \${data.action}: \${data.filename}\`, 'success');
           refreshFiles();
+          break;
+        case 'queue_update':
+          showToast(\`Queue \${data.action}: \${data.filename || ''}\`, 'success');
+          if (currentFolder === 'queue') refreshQueue();
+          break;
+        case 'stream_update':
+          showToast(\`Stream \${data.action}: \${data.source || data.streamId || ''}\`, 'success');
+          if (currentFolder === 'streams') refreshStreams();
           break;
         case 'error':
           showToast(data.message, 'error');
@@ -779,7 +1086,118 @@ function getFrontendHTML(): string {
       currentFolder = folder;
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
       document.querySelector(\`.tab[data-folder="\${folder}"]\`).classList.add('active');
-      refreshFiles();
+      
+      // Hide/show panels based on tab
+      document.getElementById('file-grid').style.display = (folder === 'queue' || folder === 'streams') ? 'none' : 'grid';
+      document.getElementById('queue-panel').style.display = folder === 'queue' ? 'block' : 'none';
+      document.getElementById('streams-panel').style.display = folder === 'streams' ? 'block' : 'none';
+      
+      if (folder === 'queue') {
+        refreshQueue();
+      } else if (folder === 'streams') {
+        refreshStreams();
+      } else {
+        refreshFiles();
+      }
+    }
+
+    async function refreshQueue() {
+      try {
+        const res = await fetch('/api/queue');
+        const data = await res.json();
+        
+        document.getElementById('queue-active').textContent = data.active || 0;
+        document.getElementById('queue-waiting').textContent = data.waiting || 0;
+        document.getElementById('queue-max').textContent = data.maxConcurrent || 5;
+        
+        const listEl = document.getElementById('queue-list');
+        if (data.waitingTickets && data.waitingTickets.length > 0) {
+          listEl.innerHTML = data.waitingTickets.map(ticket => \`
+            <div class="stream-item">
+              <div class="stream-info">
+                <div class="stream-icon">🎫</div>
+                <div>
+                  <div class="stream-name">Ticket: \${ticket.ticketId.slice(0, 8)}...</div>
+                  <div class="stream-type">Position: \${ticket.position} | Wait: ~\${ticket.estimatedWait}s</div>
+                </div>
+              </div>
+              <span class="ticket-badge">⏳ Waiting</span>
+            </div>
+          \`).join('');
+        } else {
+          listEl.innerHTML = '<div class="empty-state" style="padding:1rem;"><p>No waiting tickets</p></div>';
+        }
+      } catch (error) {
+        console.error('Failed to fetch queue:', error);
+      }
+    }
+
+    async function refreshStreams() {
+      try {
+        const res = await fetch('/api/streams');
+        const streams = await res.json();
+        
+        const listEl = document.getElementById('streams-list');
+        if (streams && streams.length > 0) {
+          listEl.innerHTML = streams.map(stream => \`
+            <div class="stream-item">
+              <div class="stream-info">
+                <div class="stream-icon">\${stream.type === 'rtmp' ? '📹' : '📷'}</div>
+                <div>
+                  <div class="stream-name">\${stream.source}</div>
+                  <div class="stream-type">\${stream.type.toUpperCase()} | \${stream.status}</div>
+                </div>
+              </div>
+              <button class="btn btn-secondary" onclick="stopStream('\${stream.id}')">⏹️ Stop</button>
+            </div>
+          \`).join('');
+        } else {
+          listEl.innerHTML = '<div class="empty-state" style="padding:2rem;"><div class="icon">📡</div><p>No active streams</p></div>';
+        }
+      } catch (error) {
+        console.error('Failed to fetch streams:', error);
+      }
+    }
+
+    async function startStream() {
+      const source = document.getElementById('stream-source').value;
+      const type = document.getElementById('stream-type').value;
+      
+      if (!source) {
+        showToast('Please enter a stream source', 'error');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/streams/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source, type })
+        });
+        const data = await res.json();
+        if (data.id) {
+          showToast('Stream started: ' + source, 'success');
+          document.getElementById('stream-source').value = '';
+          refreshStreams();
+        } else {
+          showToast(data.error || 'Failed to start stream', 'error');
+        }
+      } catch (error) {
+        showToast('Failed to start stream', 'error');
+      }
+    }
+
+    async function stopStream(streamId) {
+      try {
+        const res = await fetch(\`/api/streams/\${streamId}/stop\`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          showToast('Stream stopped', 'success');
+          refreshStreams();
+        }
+      } catch (error) {
+        showToast('Failed to stop stream', 'error');
+      }
     }
 
     function previewFile(folder, filename) {
@@ -939,11 +1357,15 @@ async function main(): Promise<void> {
   server.listen(PORT, () => {
     console.log(`
 ╔════════════════════════════════════════════════════════════╗
-║           BRANDYFICATION Agent v1.0.0                     ║
+║           BRANDYFICATION Agent v1.1.0                     ║
+║        🌀 Queue & Streaming Edition 🌀                    ║
 ╠════════════════════════════════════════════════════════════╣
 ║  Frontend:  http://localhost:${PORT}                         ║
 ║  WebSocket: ws://localhost:${PORT}                           ║
 ║  API:       http://localhost:${PORT}/api                     ║
+╠════════════════════════════════════════════════════════════╣
+║  NEW: /api/queue          - Download queue status         ║
+║  NEW: /api/streams        - Active stream management      ║
 ╠════════════════════════════════════════════════════════════╣
 ║  MCP Status: ${mcpClient.isConnected() ? "Connected ✓" : "Disconnected ✗"}                              ║
 ╚════════════════════════════════════════════════════════════╝

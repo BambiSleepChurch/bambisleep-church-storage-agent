@@ -1,7 +1,7 @@
 {
   "name": "brandyfication-agent",
-  "version": "1.0.0",
-  "description": "Agentic frontend for BRANDYFICATION file hosting",
+  "version": "1.1.0",
+  "description": "Agentic frontend for BRANDYFICATION file hosting with streaming & queue support",
   "type": "module",
   "main": "dist/agent.js",
   "scripts": {
